@@ -6,7 +6,7 @@ import { requireAuth } from '@/app/lib/auth';
 import { ApiResponse } from '@/app/lib/types';
 
 // POST: Mark all messages from a user as read
-export async function POST(
+/*export async function POST(
   request: NextRequest,
   { params }: { params: { userId: string } }
 ): Promise<NextResponse<ApiResponse>> {
@@ -49,6 +49,48 @@ export async function POST(
         success: false,
         message: error.message || 'Failed to mark messages as read',
       },
+      { status: 500 }
+    );
+  }
+}*/
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ userId: string }> }   // ← Promise
+): Promise<NextResponse<ApiResponse>> {
+  try {
+    const currentUser = await requireAuth(request);
+    await connectDB();
+
+    const { userId: senderId } = await params;          // ← unwrap here
+
+    // all unread messages from this sender
+    const unreadMessages = await ChannelMessage.find({
+      senderId,
+      _id: {
+        $nin: await UserReadMessage.find({ userId: currentUser._id })
+                 .distinct('messageId'),
+      },
+    }).select('_id');
+
+    if (unreadMessages.length) {
+      const readRecords = unreadMessages.map(msg => ({
+        userId: currentUser._id,
+        messageId: msg._id,
+        readAt: new Date(),
+      }));
+      await UserReadMessage.insertMany(readRecords);
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Marked ${unreadMessages.length} messages as read`,
+    });
+
+  } catch (error: any) {
+    console.error('Mark all messages read error:', error);
+    return NextResponse.json(
+      { success: false, message: error.message || 'Failed to mark messages as read' },
       { status: 500 }
     );
   }
